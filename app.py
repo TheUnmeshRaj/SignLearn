@@ -1,19 +1,21 @@
+import tempfile
+
+import cv2
+import mediapipe as mp
+import numpy as np
 import streamlit as st
 import torch
-import cv2
 from PIL import Image
-import numpy as np
-from torchvision import transforms, models
-import mediapipe as mp
-import tempfile
+from torchvision import models, transforms
 
 st.set_page_config(page_title="ISL Learning App", layout="wide")
 
-# ==== CONFIG ====
+
 MODEL_CONFIGS = {
     "A–F": ("models/model_af.pth", ['a', 'b', 'c', 'd', 'e', 'f']),
-    "G–L": ("models/model_gl.pth", ['g', 'h', 'i', 'j', 'k', 'l']),
-    # "M–S": ("models/model_ms.pth", ['m', 'n', 'o', 'p', 'q', 'r', 's']),
+    "G–L": ("models/model_af.pth", ['g', 'h', 'i', 'j', 'k', 'l']),
+    "M–S": ("models/model_af.pth", ['m', 'n', 'o', 'p', 'q', 'r', 's']),
+    "T–Z": ("models/model_af.pth", ['t', 'u', 'v', 'w', 'x', 'y', 'z']),
 }
 
 REFERENCE_IMAGES = {
@@ -23,9 +25,29 @@ REFERENCE_IMAGES = {
     'd': 'ref_imgs/d.jpg',
     'e': 'ref_imgs/e.jpg',
     'f': 'ref_imgs/f.jpg',
+    'g': 'ref_imgs/g.jpg',
+    'h': 'ref_imgs/h.jpg',
+    'i': 'ref_imgs/i.jpg',
+    'j': 'ref_imgs/j.jpg',
+    'k': 'ref_imgs/k.jpg',
+    'l': 'ref_imgs/l.jpg',
+    'm': 'ref_imgs/m.jpg',
+    'n': 'ref_imgs/n.jpg',
+    'o': 'ref_imgs/o.jpg',
+    'p': 'ref_imgs/p.jpg',
+    'q': 'ref_imgs/q.jpg',
+    'r': 'ref_imgs/r.jpg',
+    's': 'ref_imgs/s.jpg',
+    't': 'ref_imgs/t.jpg',
+    'u': 'ref_imgs/u.jpg',
+    'v': 'ref_imgs/v.jpg',
+    'w': 'ref_imgs/w.jpg',
+    'x': 'ref_imgs/x.jpg',
+    'y': 'ref_imgs/y.jpg',
+    'z': 'ref_imgs/z.jpg'
 }
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
