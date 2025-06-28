@@ -13,9 +13,9 @@ st.set_page_config(page_title="ISL Learning App", layout="wide")
 
 MODEL_CONFIGS = {
     "A–F": ("models/model_af.pth", ['a', 'b', 'c', 'd', 'e', 'f']),
-    "G–L": ("models/model_af.pth", ['g', 'h', 'i', 'j', 'k', 'l']),
-    "M–S": ("models/model_af.pth", ['m', 'n', 'o', 'p', 'q', 'r', 's']),
-    "T–Z": ("models/model_af.pth", ['t', 'u', 'v', 'w', 'x', 'y', 'z']),
+    "G–L": ("models/model_gl.pth", ['g', 'h', 'i', 'j', 'k', 'l']),
+    # "M–S": ("models/ms.pth", ['m', 'n', 'o', 'p', 'q', 'r', 's']),
+    # "T–Z": ("models/tz.pth", ['t', 'u', 'v', 'w', 'x', 'y', 'z']),
 }
 
 REFERENCE_IMAGES = {
