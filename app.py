@@ -534,124 +534,68 @@ with tabs[0]:
         
         # Status display
         status_placeholder = st.empty()
+        
+        mp_hands = mp.solutions.hands
+        hands = mp_hands.Hands(static_image_mode=True, max_num_hands=1)
+        mp_draw = mp.solutions.drawing_utils
+        st.title("Sign Language Detection (Image Snapshot)")
+        
+        img_file = st.camera_input("Show your hand sign here")
+        
+        if img_file:
+            img = Image.open(img_file).convert("RGB")
+            img_np = np.array(img)
+        
+            # Process image with MediaPipe
+            results = hands.process(img_np)
+        
+            if results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    mp_draw.draw_landmarks(img_np, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+        
+                # Get bounding box of hand landmarks
+                h, w, _ = img_np.shape
+                x_coords = [lm.x for lm in hand_landmarks.landmark]
+                y_coords = [lm.y for lm in hand_landmarks.landmark]
+        
+                x_min, x_max = int(min(x_coords) * w), int(max(x_coords) * w)
+                y_min, y_max = int(min(y_coords) * h), int(max(y_coords) * h)
+        
+                # Add padding and clip
+                pad = 20
+                x1 = max(x_min - pad, 0)
+                y1 = max(y_min - pad, 0)
+                x2 = min(x_max + pad, w)
+                y2 = min(y_max + pad, h)
+        
+                hand_img = img_np[y1:y2, x1:x2]
+        
+                if hand_img.size != 0:
+                    pil_hand = Image.fromarray(hand_img)
+                    st.image(pil_hand, caption="Cropped Hand Region", width=200)
+        
+                    # Prepare tensor and predict
+                    input_tensor = transform(pil_hand).unsqueeze(0).to(device)
+                    with torch.no_grad():
+                        output = model(input_tensor)
+                        probs = torch.nn.functional.softmax(output, dim=1)
+                        conf, pred_idx = torch.max(probs, 1)
+                        predicted_letter = class_names[pred_idx.item()]
+                        confidence = conf.item()
+        
+                    st.markdown(f"### Prediction: **{predicted_letter.upper()}** (Confidence: {confidence:.2f})")
+                else:
+                    st.warning("Hand region too small for prediction.")
+        
+                # Show image with landmarks
+                st.image(img_np, caption="Hand Landmarks Overlay", channels="RGB")
+        
+            else:
+                st.warning("No hand detected. Try again.")
+
     
     # WORKING WEBCAM LOGIC
-    if st.session_state.webcam_running:
-        mp_hands, hands, mp_draw = init_mediapipe()
-        
-        # Try to open webcam
-        try:
-            cap = cv2.VideoCapture(0)
-            
-            if not cap.isOpened():
-                st.error("❌ Cannot access webcam. Please check your camera permissions.")
-                st.session_state.webcam_running = False
-            else:
-                status_placeholder.success("🎥 Webcam active - Show your hand signs!")
-                
-                # Main webcam loop
-                frame_count = 0
-                while st.session_state.webcam_running:
-                    ret, frame = cap.read()
-                    if not ret:
-                        st.error("❌ Failed to read from webcam")
-                        break
-                    
-                    # Flip frame horizontally for mirror effect
-                    frame = cv2.flip(frame, 1)
-                    h, w, _ = frame.shape
-                    
-                    # Convert BGR to RGB for MediaPipe
-                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    results = hands.process(rgb_frame)
-                    
-                    # Process hand landmarks
-                    if results.multi_hand_landmarks:
-                        for hand_landmarks in results.multi_hand_landmarks:
-                            # Extract hand region coordinates
-                            x_coords = [lm.x for lm in hand_landmarks.landmark]
-                            y_coords = [lm.y for lm in hand_landmarks.landmark]
-                            
-                            x_min, x_max = int(min(x_coords) * w), int(max(x_coords) * w)
-                            y_min, y_max = int(min(y_coords) * h), int(max(y_coords) * h)
-                            
-                            # Add padding
-                            x1 = max(x_min - 20, 0)
-                            y1 = max(y_min - 20, 0)
-                            x2 = min(x_max + 20, w)
-                            y2 = min(y_max + 20, h)
-                            
-                            # Extract hand region
-                            hand_img = frame[y1:y2, x1:x2]
-                            
-                            if hand_img.size != 0:
-                                # Prepare image for model
-                                img_rgb = cv2.cvtColor(hand_img, cv2.COLOR_BGR2RGB)
-                                pil_img = Image.fromarray(img_rgb)
-                                input_tensor = transform(pil_img).unsqueeze(0).to(device)
-                                
-                                # Make prediction
-                                with torch.no_grad():
-                                    output = model(input_tensor)
-                                    probabilities = torch.nn.functional.softmax(output, dim=1)
-                                    confidence, pred_idx = torch.max(probabilities, 1)
-                                    
-                                    confidence_score = confidence.item()
-                                    predicted_letter = class_names[pred_idx.item()]
-                                    
-                                    # Update session state
-                                    if confidence_score > confidence_threshold:
-                                        st.session_state.current_prediction = predicted_letter
-                                        st.session_state.current_confidence = confidence_score
-                                        
-                                        # Add to learned letters
-                                        st.session_state.user_progress['learned_letters'].add(predicted_letter)
-                                        
-                                        # Draw prediction on frame
-                                        cv2.putText(frame, f"{predicted_letter.upper()} ({confidence_score:.2f})", 
-                                                  (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 
-                                                  1, (0, 255, 0), 2)
-                                        
-                                        # Show reference image
-                                        if predicted_letter in REFERENCE_IMAGES:
-                                            try:
-                                                ref_placeholder.image(
-                                                    REFERENCE_IMAGES[predicted_letter], 
-                                                    caption=f"Reference: {predicted_letter.upper()}",
-                                                    width=200
-                                                )
-                                            except:
-                                                ref_placeholder.info(f"Reference image for '{predicted_letter.upper()}' not found")
-                                    
-                                    # Draw bounding box
-                                    cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-                            
-                            # Draw hand landmarks
-                            if show_landmarks:
-                                mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-                    
-                    # Display frame
-                    stframe.image(frame, channels="BGR", use_container_width=True)
-                    
-                    # Control frame rate
-                    frame_count += 1
-                    if frame_count % 30 == 0:  # Update every 30 frames
-                        time.sleep(0.1)
-                    
-                    # Check if stop button was pressed
-                    if not st.session_state.webcam_running:
-                        break
-                
-                cap.release()
-                status_placeholder.info("📷 Webcam stopped")
-        
-        except Exception as e:
-            st.error(f"❌ Webcam error: {str(e)}")
-            st.session_state.webcam_running = False
-    
-    else:
-        stframe.info("👆 Click 'Start Webcam' to begin sign recognition")
-
+ 
 # Tab 2: Alphabet Reference
 with tabs[1]:
     st.header("📚 Complete ISL Alphabet Reference")
