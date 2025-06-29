@@ -206,7 +206,7 @@ def load_user_progress():
     }
 
 def save_user_progress(progress):
-    conn = sqlite3.connect('progdfdfress.db')
+    conn = sqlite3.connect('progress.db')
     c = conn.cursor()
     c.execute('''INSERT OR REPLACE INTO progress (
                     user_id, learned_letters, practice_sessions, total_time, 
@@ -259,6 +259,7 @@ def load_model(model_path, num_classes):
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
         return None
+    
 def init_mediapipe():
     try:
         mp_hands = mp.solutions.hands
@@ -363,7 +364,6 @@ with st.sidebar:
 tabs = st.tabs([
     "🎯 Interactive Learning",
     "📚 Alphabet Reference", 
-    "🗣️ Common Phrases",
     "🎮 Practice Games",
     "📊 Progress Analytics",
     "ℹ️ About ISL"
@@ -563,36 +563,8 @@ with tabs[1]:
             - Poor lighting conditions
             """)
 
-# Tab 3: Common Phrases
-with tabs[2]:
-    st.header("🗣️ Essential ISL Phrases")
-    st.markdown("Learn practical signs for daily communication")
-    
-    selected_category = st.selectbox("Choose Category:", list(PHRASES_CONFIG.keys()))
-    
-    phrases = PHRASES_CONFIG[selected_category]
-    
-    phrase_cols = st.columns(2)
-    
-    for i, (phrase, config) in enumerate(phrases.items()):
-        with phrase_cols[i % 2]:
-            st.markdown(f"""
-            <div class="feature-card">
-                <h3>{phrase}</h3>
-                <p>{config['description']}</p>
-            """, unsafe_allow_html=True)
-            video_path = config['video']
-            if os.path.exists(video_path):
-                st.video(video_path)
-            else:
-                st.markdown(f"*Video for '{phrase}' not found.*")
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-            if st.button(f"Practice {phrase}", key=f"practice_{phrase}"):
-                st.success(f"Starting practice session for '{phrase}'")
-
 # Tab 4: Practice Games
-with tabs[3]:
+with tabs[2]:
     st.header("🎮 Interactive Learning Games")
     
     game_col1, game_col2 = st.columns(2)
@@ -693,7 +665,7 @@ with tabs[3]:
                                     st.rerun()
 
 # Tab 5: Progress Analytics
-with tabs[4]:
+with tabs[3]:
     st.header("📊 Your Learning Analytics")
     
     sample_dates = [datetime.now() - timedelta(days=i) for i in range(30, 0, -1)]
@@ -743,7 +715,7 @@ with tabs[4]:
             st.markdown(f"- {achievement}")
 
 # Tab 6: About ISL
-with tabs[5]:
+with tabs[4]:
     st.header("ℹ️ About Indian Sign Language")
     
     col1, col2 = st.columns([2, 1])
@@ -793,7 +765,7 @@ with tabs[5]:
             </ul>
         </div>
         
-        <div class="feature-card">
+        <div class="feature-card"
             <h3>🔧 Technical Info</h3>
             <ul>
                 <li>Built with Streamlit</li>
