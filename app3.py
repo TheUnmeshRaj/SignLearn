@@ -206,7 +206,7 @@ def load_user_progress():
     }
 
 def save_user_progress(progress):
-    conn = sqlite3.connect('progress.db')
+    conn = sqlite3.connect('progdfdfress.db')
     c = conn.cursor()
     c.execute('''INSERT OR REPLACE INTO progress (
                     user_id, learned_letters, practice_sessions, total_time, 
