@@ -1,12 +1,13 @@
-
 import json
 import os
 import random
 import sqlite3
+import string
 import tempfile
 import threading
 import time
 from datetime import datetime, timedelta
+from streamlit_webrtc import webrtc_streamer
 
 import cv2
 import mediapipe as mp
@@ -16,6 +17,7 @@ import plotly.graph_objects as go
 import streamlit as st
 import torch
 from PIL import Image
+from skimage.metrics import structural_similarity as ssim
 from torchvision import models, transforms
 
 # Page Configuration
@@ -25,7 +27,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
 # Custom CSS for modern styling
 st.markdown("""
 <style>
@@ -108,7 +109,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
 # Model Configurations (WORKING PATHS)
 MODEL_CONFIGS = {
     "A–F": ("models/model_af.pth", ['a', 'b', 'c', 'd', 'e', 'f']),
@@ -116,38 +116,6 @@ MODEL_CONFIGS = {
     "M–S": ("models/model_ms.pth", ['m', 'n', 'o', 'p', 'q', 'r', 's']),
     "T–Z": ("models/model_tz.pth", ['t', 'u', 'v', 'w', 'x', 'y', 'z']),
 }
-
-
-# Model Configurations
-# MODEL_CONFIGS = {
-    # "Beginner (A–F)": {
-        # "path": "models/model_af.pth",
-        # "classes": ['a', 'b', 'c', 'd', 'e', 'f'],
-        # "description": "Perfect for starting your ISL journey",
-        # "difficulty": "🟢 Easy"
-    # },
-    # "Elementary (G–L)": {
-        # "path": "models/model_gl.pth",
-        # "classes": ['g', 'h', 'i', 'j', 'k', 'l'],
-        # "description": "Build upon your basic knowledge",
-        # "difficulty": "🟡 Medium"
-    # },
-    # "Intermediate (M–S)": {
-        # "path": "models/model_ms.pth",
-        # "classes": ['m', 'n', 'o', 'p', 'q', 'r', 's'],
-        # "description": "Challenge yourself with more letters",
-        # "difficulty": "🟠 Hard"
-    # },
-    # "Advanced (T–Z)": {
-        # "path": "models/model_tz.pth",
-        # "classes": ['t', 'u', 'v', 'w', 'x', 'y', 'z'],
-        # "description": "Master the complete alphabet",
-        # "difficulty": "🔴 Expert"
-    # }
-# }
-
-
-
 # Reference Images (WORKING PATHS)
 REFERENCE_IMAGES = {
     'a': 'ref_imgs/a.jpg', 'b': 'ref_imgs/b.jpg', 'c': 'ref_imgs/c.jpg',
@@ -160,8 +128,6 @@ REFERENCE_IMAGES = {
     'v': 'ref_imgs/v.jpg', 'w': 'ref_imgs/w.jpg', 'x': 'ref_imgs/x.jpg',
     'y': 'ref_imgs/y.jpg', 'z': 'ref_imgs/z.jpg'
 }
-
-
 PHRASES_CONFIG = {
     "Greetings": {
         "Hello": {"video": "phrases/hello.mp4", "description": "Basic greeting gesture"},
@@ -183,11 +149,10 @@ PHRASES_CONFIG = {
         "No": {"video": "phrases/no.mp4", "description": "Negative response"}
     },
     "Numbers": {
-        "1-5": {"video": "phrases/numbers_1_5.mp4", "description": "Basic counting"},
-        "6-10": {"video": "phrases/numbers_6_10.mp4", "description": "Extended counting"}
+        "1-5": {"video": "phrases/1.mp4", "description": "Basic counting"},
+        "6-10": {"video": "phrases/6.mp4", "description": "Extended counting"}
     }
 }
-
 # Database Setup for Progress Tracking
 def init_db():
     conn = sqlite3.connect('progress.db')
@@ -212,7 +177,6 @@ def init_db():
                 )''')
     conn.commit()
     conn.close()
-
 def load_user_progress():
     conn = sqlite3.connect('progress.db')
     c = conn.cursor()
@@ -239,7 +203,6 @@ def load_user_progress():
         'accuracy_history': [],
         'last_session': None
     }
-
 def save_user_progress(progress):
     conn = sqlite3.connect('progress.db')
     c = conn.cursor()
@@ -254,12 +217,8 @@ def save_user_progress(progress):
                  progress['last_session']))
     conn.commit()
     conn.close()
-
 # Initialize Database
 init_db()
-
-
-
 # Initialize session state for tracking
 if 'user_progress' not in st.session_state:
     st.session_state.user_progress = {
@@ -269,7 +228,6 @@ if 'user_progress' not in st.session_state:
         'streak_days': 1
     }
     st.session_state.user_progress = load_user_progress()
-
 if 'current_session' not in st.session_state:
     st.session_state.current_session = {
         'start_time': None,
@@ -277,17 +235,12 @@ if 'current_session' not in st.session_state:
         'accuracy': 0,
         'letters_practiced': set()
     }
-
-
 if 'webcam_running' not in st.session_state:
     st.session_state.webcam_running = False
-
 if 'current_prediction' not in st.session_state:
     st.session_state.current_prediction = ""
-
 if 'current_confidence' not in st.session_state:
     st.session_state.current_confidence = 0.0
-
 # Device and Transform Setup
 device = torch.device("cpu")
 transform = transforms.Compose([
@@ -295,7 +248,6 @@ transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
-
 @st.cache_resource
 def load_model(model_path, num_classes):
     """Load and cache the PyTorch model"""
@@ -313,7 +265,6 @@ def load_model(model_path, num_classes):
     model.to(device)
     model.eval()
     return model
-
 # MediaPipe setup
 @st.cache_resource
 def init_mediapipe():
@@ -326,8 +277,6 @@ def init_mediapipe():
     )
     mp_draw = mp.solutions.drawing_utils
     return mp_hands, hands, mp_draw
-
-
 def update_progress(letter, accuracy):
     st.session_state.user_progress['learned_letters'].add(letter)
     st.session_state.current_session['letters_practiced'].add(letter)
@@ -338,7 +287,6 @@ def update_progress(letter, accuracy):
     })
     st.session_state.user_progress['accuracy_history'].append(accuracy)
     save_user_progress(st.session_state.user_progress)
-
 def render_user_progress():
     learned_count = len(st.session_state.user_progress['learned_letters'])
     progress_percentage = (learned_count / 26) * 100
@@ -357,7 +305,6 @@ def render_user_progress():
         st.markdown("### 🎯 Recently Learned")
         recent_letters = list(st.session_state.user_progress['learned_letters'])[-5:]
         st.write(" • ".join([l.upper() for l in recent_letters]))
-
 def update_learning_streak():
     today = datetime.now().date()
     last_session = st.session_state.user_progress.get('last_session')
@@ -371,7 +318,6 @@ def update_learning_streak():
 
     st.session_state.user_progress['last_session'] = datetime.now().isoformat()
     save_user_progress(st.session_state.user_progress)
-
 def render_sidebar_progress():
     st.markdown(f"""
     <div class="sidebar-section">
@@ -387,9 +333,6 @@ def render_sidebar_progress():
         <p>Total Time: {st.session_state.user_progress['total_time']//60} min</p>
     </div>
     """, unsafe_allow_html=True)
-
-
-
 def get_progress_data():
     learned_letters = list(st.session_state.user_progress['learned_letters'])
     learned_count = len(learned_letters)
@@ -402,7 +345,106 @@ def get_progress_data():
     progress_counts = np.minimum(np.arange(1, 31) // 3, learned_count)
     
     return progress_data, dates, progress_counts
-
+def extract_hand_landmarks(image):
+    """Extract hand landmarks using MediaPipe"""
+    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    results = hands.process(rgb_image)
+    
+    if results.multi_hand_landmarks:
+        landmarks = []
+        for hand_landmarks in results.multi_hand_landmarks:
+            for landmark in hand_landmarks.landmark:
+                landmarks.extend([landmark.x, landmark.y, landmark.z])
+        return np.array(landmarks)
+    return None
+def calculate_gesture_similarity(landmarks1, landmarks2):
+    """Calculate similarity between two sets of hand landmarks"""
+    if landmarks1 is None or landmarks2 is None:
+        return 0.0
+    
+    # Normalize landmarks to handle scale differences
+    landmarks1_norm = (landmarks1 - np.mean(landmarks1)) / (np.std(landmarks1) + 1e-8)
+    landmarks2_norm = (landmarks2 - np.mean(landmarks2)) / (np.std(landmarks2) + 1e-8)
+    
+    # Calculate cosine similarity
+    dot_product = np.dot(landmarks1_norm, landmarks2_norm)
+    norm1 = np.linalg.norm(landmarks1_norm)
+    norm2 = np.linalg.norm(landmarks2_norm)
+    
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+    
+    similarity = dot_product / (norm1 * norm2)
+    # Convert to 0-1 range
+    return (similarity + 1) / 2
+def load_reference_landmarks(letter):
+    """Load reference landmarks for a letter (you'll need to implement this)"""
+    # This is a placeholder - you'll need to pre-compute and store reference landmarks
+    # For now, return None to simulate missing reference data
+    return None
+def start_new_round():
+    """Start a new game round"""
+    if st.session_state.allowed_letters:
+        import random
+        st.session_state.game_letter = random.choice(st.session_state.allowed_letters)
+        st.session_state.start_time = time.time()
+        st.session_state.matched_this_round = False
+        st.session_state.clear_camera_input = True
+        st.session_state.round_start_time = time.time()
+        
+def extract_hand_landmarks(image):
+    """Extract hand landmarks using MediaPipe"""
+    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    results = hands.process(rgb_image)
+    
+    if results.multi_hand_landmarks:
+        landmarks = []
+        for hand_landmarks in results.multi_hand_landmarks:
+            for landmark in hand_landmarks.landmark:
+                landmarks.extend([landmark.x, landmark.y])  # Only x,y for 2D comparison
+        return np.array(landmarks), results.multi_hand_landmarks
+    return None, None
+def draw_landmarks_on_image(image, hand_landmarks_list):
+    """Draw hand landmarks on image"""
+    annotated_image = image.copy()
+    for hand_landmarks in hand_landmarks_list:
+        mp_drawing.draw_landmarks(
+            annotated_image,
+            hand_landmarks,
+            mp_hands.HAND_CONNECTIONS,
+            mp_drawing_styles.get_default_hand_landmarks_style(),
+            mp_drawing_styles.get_default_hand_connections_style()
+        )
+    return annotated_image
+def calculate_landmark_distance(landmarks1, landmarks2):
+    """Calculate normalized distance between two landmark sets"""
+    if landmarks1 is None or landmarks2 is None:
+        return float('inf')
+    
+    # Ensure same length
+    min_len = min(len(landmarks1), len(landmarks2))
+    landmarks1 = landmarks1[:min_len]
+    landmarks2 = landmarks2[:min_len]
+    
+    # Calculate Euclidean distance
+    distance = np.linalg.norm(landmarks1 - landmarks2)
+    
+    # Normalize by number of points
+    normalized_distance = distance / (min_len / 2)  # Divide by 2 because we have x,y pairs
+    
+    return normalized_distance
+def is_hand_gesture_valid(landmarks):
+    """Simple validation to check if detected landmarks form a reasonable hand gesture"""
+    if landmarks is None or len(landmarks) < 42:  # 21 points * 2 coordinates
+        return False
+    
+    # Check if landmarks are spread out (not all clustered in one spot)
+    landmarks_2d = landmarks.reshape(-1, 2)
+    x_range = np.max(landmarks_2d[:, 0]) - np.min(landmarks_2d[:, 0])
+    y_range = np.max(landmarks_2d[:, 1]) - np.min(landmarks_2d[:, 1])
+    
+    # Hand should have reasonable spread
+    return x_range > 0.1 and y_range > 0.1
 # Header
 st.markdown("""
 <div class="main-header">
@@ -410,7 +452,6 @@ st.markdown("""
     <p>Master ISL with AI-powered recognition and interactive learning</p>
 </div>
 """, unsafe_allow_html=True)
-
 # Sidebar - User Dashboard
 with st.sidebar:
     st.markdown("### 👤 Your Learning Dashboard")
@@ -460,8 +501,6 @@ with st.sidebar:
         <p>Total Time: {st.session_state.user_progress['total_time']//60}min</p>
     </div>
     """, unsafe_allow_html=True)
-
-
 # Main Content Tabs
 tabs = st.tabs([
     "🎯 Interactive Learning",
@@ -471,14 +510,10 @@ tabs = st.tabs([
     "📊 Progress Analytics",
     "ℹ️ About ISL"
 ])
-
-
-
 # Tab 1: Live Practice (WORKING VERSION)
 with tabs[0]:
     st.header("🎯 AI-Powered Sign Recognition")
-    
-    col1, col2 = st.columns([1, 2])
+    col1, col2 = st.columns([1, 2], gap="large")
     
     with col1:
         # st.markdown('<div class="feature-card">', unsafe_allow_html=True)
@@ -651,8 +686,8 @@ with tabs[0]:
     
     else:
         stframe.info("👆 Click 'Start Webcam' to begin sign recognition")
-
 # Tab 2: Alphabet Reference
+
 with tabs[1]:
     st.header("📚 Complete ISL Alphabet Reference")
     
@@ -721,101 +756,192 @@ with tabs[2]:
             
             if st.button(f"Practice {phrase}", key=f"practice_{phrase}"):
                 st.success(f"Starting practice session for '{phrase}'")
-                
 
-# Tab 4: Practice Games
+# Initialize MediaPipe
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
+
+hands = mp_hands.Hands(
+    static_image_mode=True,
+    max_num_hands=1,
+    min_detection_confidence=0.4,
+    min_tracking_confidence=0.5
+)
+
+
 with tabs[3]:
+    allowed_letters = ['a', 'c', 'e', 'f', 'g', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 's', 't', 'u']
+    for key, default in {
+        "challenge_active": False,
+        "game_score": 0,
+        "game_letter": None,
+        "matched_this_round": False,
+        "last_detection_time": 0
+    }.items():
+        if key not in st.session_state:
+            st.session_state[key] = default
+    
+    def start_new_round():
+        st.session_state.game_letter = random.choice(allowed_letters)
+        st.session_state.matched_this_round = False
+        st.session_state.last_detection_time = 0
+    
     st.header("🎮 Interactive Learning Games")
 
-    game_col1, game_col2 = st.columns(2)
-
-    with game_col1:
-        st.markdown("""
-        <div class="feature-card">
-            <h3>🎯 Sign Challenge</h3>
-            <p>Random letters appear - show the correct sign!</p>
-            <ul>
-                <li>⏱️ Time-based challenges</li>
-                <li>🏆 Score tracking</li>
-                <li>📈 Difficulty progression</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-        if st.button("Start Sign Challenge", key="sign_challenge"):
-            st.session_state.game_mode = "challenge"
-            st.session_state.game_score = 0
-            st.session_state.game_letter = random.choice(list(REFERENCE_IMAGES.keys()))
+    if not st.session_state.challenge_active:
+        if st.button("🚀 Start Sign Challenge", type="primary", use_container_width=True):
             st.session_state.challenge_active = True
+            st.session_state.game_score = 0
+            start_new_round()
             st.rerun()
+    else:
+        col1, col2 = st.columns([1, 1])
 
-    with game_col2:
-        if st.session_state.get("challenge_active"):
-            st.subheader(f"👋 Make the sign for: **{st.session_state.game_letter.upper()}**")
-            ref_img_path = REFERENCE_IMAGES[st.session_state.game_letter]
-            st.image(ref_img_path, caption=f"Reference Sign for '{st.session_state.game_letter.upper()}'", width=300)
+        with col1:
+            st.markdown("### 📹 Camera Feed")
 
-            # Webcam input
-            stframe = st.empty()
-            cap = cv2.VideoCapture(0)
-            mp_hands, hands, mp_draw = init_mediapipe()
+            camera_key = f"camera_{st.session_state.game_letter}_{st.session_state.game_score}"
+            uploaded_file = st.camera_input("📷 Show your sign", key=camera_key)
 
-            success = False
-            timeout = time.time() + 10
+            if uploaded_file is not None and not st.session_state.matched_this_round:
+                # Read and process image
+                file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+                frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                frame = cv2.flip(frame, 1)  # mirror
 
-            while time.time() < timeout:
-                ret, frame = cap.read()
-                if not ret:
-                    continue
+                try:
+                    mp_hands, hands, mp_draw = init_mediapipe()
+                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    results = hands.process(rgb_frame)
 
-                frame = cv2.flip(frame, 1)
-                h, w, _ = frame.shape
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                results = hands.process(rgb)
+                    if results.multi_hand_landmarks:
+                        for handLms in results.multi_hand_landmarks:
+                            h, w, _ = frame.shape
+                            x_list = [lm.x for lm in handLms.landmark]
+                            y_list = [lm.y for lm in handLms.landmark]
+                            xmin, xmax = int(min(x_list) * w), int(max(x_list) * w)
+                            ymin, ymax = int(min(y_list) * h), int(max(y_list) * h)
 
-                if results.multi_hand_landmarks:
-                    for handLms in results.multi_hand_landmarks:
-                        x_list = [lm.x for lm in handLms.landmark]
-                        y_list = [lm.y for lm in handLms.landmark]
-                        xmin, xmax = int(min(x_list)*w), int(max(x_list)*w)
-                        ymin, ymax = int(min(y_list)*h), int(max(y_list)*h)
-                        x1, y1 = max(xmin - 20, 0), max(ymin - 20, 0)
-                        x2, y2 = min(xmax + 20, w), min(ymax + 20, h)
+                            x1, y1 = max(xmin - 20, 0), max(ymin - 20, 0)
+                            x2, y2 = min(xmax + 20, w), min(ymax + 20, h)
 
-                        hand_img = frame[y1:y2, x1:x2]
-                        if hand_img.size != 0:
-                            img = cv2.cvtColor(hand_img, cv2.COLOR_BGR2RGB)
-                            img = Image.fromarray(img)
-                            img = transform(img).unsqueeze(0).to(device)
+                            hand_img = frame[y1:y2, x1:x2]
 
-                            with torch.no_grad():
-                                output = model(img)
-                                _, pred = torch.max(output, 1)
-                                predicted = class_names[pred.item()]
+                            ref_img_path = REFERENCE_IMAGES.get(st.session_state.game_letter)
+                            ref_img_bgr = cv2.imread(ref_img_path)
+                            ref_img_rgb = cv2.cvtColor(ref_img_bgr, cv2.COLOR_BGR2RGB)
+                            ref_results = hands.process(ref_img_rgb)
 
-                                if predicted == st.session_state.game_letter:
-                                    st.success("✅ Correct Sign!")
-                                    st.session_state.game_score += 1
-                                    success = True
-                                    break
+                            ref_hand_img = None
+                            if ref_results.multi_hand_landmarks:
+                                for refHandLms in ref_results.multi_hand_landmarks:
+                                    rx = [lm.x for lm in refHandLms.landmark]
+                                    ry = [lm.y for lm in refHandLms.landmark]
+                                    rh, rw, _ = ref_img_rgb.shape
+                                    rx1, rx2 = int(min(rx) * rw) - 20, int(max(rx) * rw) + 20
+                                    ry1, ry2 = int(min(ry) * rh) - 20, int(max(ry) * rh) + 20
+                                    ref_hand_img = ref_img_rgb[max(ry1, 0):min(ry2, rh), max(rx1, 0):min(rx2, rw)]
 
-                        if show_landmarks:
-                            mp_draw.draw_landmarks(frame, handLms, mp_hands.HAND_CONNECTIONS)
+                            if hand_img.size != 0 and ref_hand_img is not None:
+                                hand_gray = cv2.cvtColor(hand_img, cv2.COLOR_BGR2GRAY)
+                                ref_gray = cv2.cvtColor(ref_hand_img, cv2.COLOR_BGR2GRAY)
+                                hand_resized = cv2.resize(hand_gray, (200, 200))
+                                ref_resized = cv2.resize(ref_gray, (200, 200))
 
-                stframe.image(frame, channels="BGR")
-                if success:
-                    break
+                                similarity_score, _ = ssim(hand_resized, ref_resized, full=True)
 
-            cap.release()
-            st.markdown(f"### 🎉 Your Score: **{st.session_state.game_score}**")
-            if st.button("Next Challenge"):
-                st.session_state.game_letter = random.choice(list(REFERENCE_IMAGES.keys()))
+                                st.image(frame, caption=f"Your Sign (Similarity: {similarity_score:.2f})", width=400)
+
+                                if similarity_score >= 0.2:
+                                    current_time = time.time()
+                                    if current_time - st.session_state.last_detection_time > 1.0:
+                                        st.success("✅ Sign Matched!")
+                                        st.session_state.game_score += 1
+                                        st.session_state.matched_this_round = True
+                                        st.session_state.last_detection_time = current_time
+                                        st.balloons()
+                                        time.sleep(1)
+                                        start_new_round()
+                                        st.rerun()
+                                else:
+                                    st.warning("⚠️ Try to match the reference sign better.")
+                            else:
+                                st.image(frame, caption="Show your hand clearly", width=400)
+                    else:
+                        st.image(frame, caption="No hand detected", width=400)
+                        st.warning("❌ No hand detected. Please show your hand clearly.")
+
+                except Exception as e:
+                    st.error(f"Processing error: {e}")
+                    st.image(frame, caption="Error processing frame", width=400)
+
+            elif st.session_state.matched_this_round:
+                st.success("✅ Round completed! Preparing next sign...")
+                time.sleep(1)
+                start_new_round()
                 st.rerun()
-            if st.button("End Game"):
+
+        with col2:
+            st.markdown("### 🎮 Game Controls")
+            if st.button("⏹️ End Game", use_container_width=True):
                 st.session_state.challenge_active = False
-                st.session_state.game_mode = None
+                st.session_state.game_letter = None
+                st.session_state.matched_this_round = False
+                st.rerun()
 
+            if st.button("⏭️ Next Sign", use_container_width=True):
+                start_new_round()
+                st.rerun()
 
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                padding: 20px;
+                border-radius: 10px;
+                text-align: center;
+                color: white;
+                margin: 20px 0;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            ">
+                <h2 style="margin: 0; font-size: 2em;">🏆</h2>
+                <h3 style="margin: 5px 0;">Current Score</h3>
+                <h1 style="margin: 0; font-size: 3em; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">{st.session_state.game_score}</h1>
+            </div>
+            """ , unsafe_allow_html=True)
+
+            st.markdown("### 📚 Reference Sign")
+            ref_img_path = REFERENCE_IMAGES.get(st.session_state.game_letter)
+            if ref_img_path:
+                ref_img = cv2.imread(ref_img_path)
+                if ref_img is not None:
+                    ref_img = cv2.cvtColor(ref_img, cv2.COLOR_BGR2RGB)
+                    st.image(ref_img, caption=f"Sign for '{st.session_state.game_letter.upper()}'", width=300)
+                else:
+                    st.warning("Reference image not found.")
+            else:
+                st.info("No reference image for this letter.")
+
+            st.markdown("""
+            <div style="
+                background: #e3f2fd;
+                padding: 15px;
+                border-radius: 8px;
+                border-left: 4px solid #2196f3;
+                margin: 20px 0;
+            ">
+                <h4 style="color: #1976d2; margin-top: 0;">🎯 How to Play</h4>
+                <ul style="margin-bottom: 0;">
+                    <li>📸 Show your hand clearly in the camera</li>
+                    <li>👋 Make the sign for the given letter</li>
+                    <li>⏱️ Hold steady for 1 second to score</li>
+                    <li>🎉 Game auto-progresses to next round</li>
+                    <li>👀 Green landmarks show hand detection</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+
+                   
 with tabs[4]:  # or wherever your analytics tab is
     st.header("📊 Your Learning Analytics")
 
@@ -858,7 +984,7 @@ with tabs[4]:  # or wherever your analytics tab is
         active = [0] * 14
         
         # Simulated: mark last streak_days as active
-        streak_len = st.session_state.user_progress.get('streak_days', 0)
+        streak_len = int(st.session_state.user_progress.get('streak_days', 0))
         for i in range(1, min(streak_len + 1, 14) + 1):
             active[-i] = 1
         
@@ -895,10 +1021,7 @@ with tabs[4]:  # or wherever your analytics tab is
     cols = st.columns(3)
     for idx, (label, value) in enumerate(stats.items()):
         with cols[idx % 3]:
-            st.metric(label=label, value=value)
-
-
-        
+            st.metric(label=label, value=value)  
 # Tab 4: About ISL
 with tabs[5]:
     st.header("ℹ️ About Indian Sign Language")
@@ -982,8 +1105,6 @@ with tabs[5]:
         </div>
 
         """, unsafe_allow_html=True)
-        
-
 # Footer
 st.markdown("---")
 st.markdown("""
