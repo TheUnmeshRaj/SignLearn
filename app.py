@@ -686,6 +686,7 @@ with tabs[0]:
     
     else:
         stframe.info("👆 Click 'Start Webcam' to begin sign recognition")
+
 # Tab 2: Alphabet Reference
 
 with tabs[1]:
