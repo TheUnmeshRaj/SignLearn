@@ -6,10 +6,10 @@ alphabets(Learn T-Z)
 .devcontainer
 demos
 images
-phrases
-ref_imgs
-test
-temp files
+phrases/
+ref_imgs/
+test/
+temp files/
 progress.db
 new.p 
 sign.png
