@@ -1,3 +1,4 @@
+#conda activate sign
 import json
 import os
 import random
@@ -6,8 +7,8 @@ import string
 import tempfile
 import threading
 import time
+import pickle
 from datetime import datetime, timedelta
-from streamlit_webrtc import webrtc_streamer
 
 import cv2
 import mediapipe as mp
@@ -18,6 +19,7 @@ import streamlit as st
 import torch
 from PIL import Image
 from skimage.metrics import structural_similarity as ssim
+from streamlit_webrtc import webrtc_streamer
 from torchvision import models, transforms
 
 # Page Configuration
@@ -28,18 +30,18 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 # Custom CSS for modern styling
+
 st.markdown("""
 <style>
     .main-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #FF9933 0%, white 50%, #138808 100%);
         padding: 2rem;
         border-radius: 15px;
-        color: white;
         text-align: center;
         margin-bottom: 2rem;
         box-shadow: 0 8px 32px rgba(0,0,0,0.1);
     }
-    
+
     .feature-card {
         background: white;
         padding: 1.5rem;
@@ -130,23 +132,14 @@ REFERENCE_IMAGES = {
 }
 PHRASES_CONFIG = {
     "Greetings": {
-        "Hello": {"video": "phrases/hello.mp4", "description": "Basic greeting gesture"},
-        "Good Morning": {"video": "phrases/good_morning.mp4", "description": "Morning greeting"},
-        "Good Evening": {"video": "phrases/good_evening.mp4", "description": "Evening greeting"},
-        "Goodbye": {"video": "phrases/goodbye.mp4", "description": "Farewell gesture"}
+        "Hello": {"video": "phrases/hello1.mp4", "description": "Basic greeting gesture"},
+        "How are you?": {"video": "phrases/how.mp4", "description": "Meeting greeting"},
+        "Goodbye": {"video": "phrases/bye.mp4", "description": "Farewell gesture"}
     },
-    "Courtesy": {
-        "Thank You": {"video": "phrases/thank_you.mp4", "description": "Express gratitude"},
-        "Please": {"video": "phrases/please.mp4", "description": "Polite request"},
-        "Sorry": {"video": "phrases/sorry.mp4", "description": "Apologize gesture"},
-        "Welcome": {"video": "phrases/welcome.mp4", "description": "Welcoming gesture"}
-    },
-    "Basic Needs": {
-        "Water": {"video": "phrases/water.mp4", "description": "Ask for water"},
-        "Food": {"video": "phrases/food.mp4", "description": "Ask for food"},
-        "Help": {"video": "phrases/help.mp4", "description": "Request assistance"},
-        "Yes": {"video": "phrases/yes.mp4", "description": "Affirmative response"},
-        "No": {"video": "phrases/no.mp4", "description": "Negative response"}
+    "Basic Phrases": {
+        "Name": {"video": "phrases/name.mp4", "description": "Say your name"},
+        "Age": {"video": "phrases/age.mp4", "description": "Say your age"},
+        "Home": {"video": "phrases/home.mp4", "description": "Say where you're from"}      
     },
     "Numbers": {
         "1-5": {"video": "phrases/1.mp4", "description": "Basic counting"},
@@ -512,180 +505,312 @@ tabs = st.tabs([
 ])
 # Tab 1: Live Practice (WORKING VERSION)
 with tabs[0]:
-    st.header("🎯 AI-Powered Sign Recognition")
-    col1, col2 = st.columns([1, 2], gap="large")
-    
-    with col1:
-        # st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-        st.subheader("📖 Learning Settings")
+    sub_tabs = st.tabs(["🔤 Alphabet", "🗣️ Basic Words"])
+    with sub_tabs[0]: 
+        st.header("🎯 AI-Powered Sign Recognition")
+        col1, col2 = st.columns([1, 2], gap="large")
         
-        # Level Selection
-        level = st.radio("Choose Level", list(MODEL_CONFIGS.keys()))
-        model_path, class_names = MODEL_CONFIGS[level]
-        
-        # Load model
-        model = load_model(model_path, len(class_names))
-        
-        st.info(f"**Current Level:** {level}")
-        st.write(f"**Letters:** {', '.join([c.upper() for c in class_names])}")
-        
-        # Settings
-        st.subheader("⚙️ Detection Settings")
-        confidence_threshold = st.slider("Confidence Threshold", 0.5, 0.95, 0.7)
-        show_landmarks = st.checkbox("Show Hand Landmarks", True)
-        
-        # Control Buttons
-        start_button = st.button("🚀 Start Webcam", type="primary")
-        stop_button = st.button("⏹️ Stop Webcam")
-        
-        if start_button:
-            st.session_state.webcam_running = True
-            st.session_state.user_progress['practice_sessions'] += 1
+        with col1:
+            # st.markdown('<div class="feature-card">', unsafe_allow_html=True)
+            st.subheader("📖 Learning Settings")
             
-        if stop_button:
-            st.session_state.webcam_running = False
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Current Prediction Display
-        if st.session_state.current_prediction:
-            st.markdown(f"""
-            <div class="prediction-box">
-                🎯 Detected: {st.session_state.current_prediction.upper()}<br>
-                Confidence: {st.session_state.current_confidence:.1%}
-            </div>
-            """, unsafe_allow_html=True)
-    
-    with col2:
-        # st.markdown('<div class="webcam-container">', unsafe_allow_html=True)
-        
-        # Webcam display
-        stframe = st.empty()
-        
-        # Reference image display
-        ref_placeholder = st.empty()
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Status display
-        status_placeholder = st.empty()
-    
-    # WORKING WEBCAM LOGIC
-    if st.session_state.webcam_running:
-        mp_hands, hands, mp_draw = init_mediapipe()
-        
-        # Try to open webcam
-        try:
-            cap = cv2.VideoCapture(0)
+            # Level Selection
+            level = st.radio("Choose Level", list(MODEL_CONFIGS.keys()))
+            model_path, class_names = MODEL_CONFIGS[level]
             
-            if not cap.isOpened():
-                st.error("❌ Cannot access webcam. Please check your camera permissions.")
+            # Load model
+            model = load_model(model_path, len(class_names))
+            
+            st.info(f"**Current Level:** {level}")
+            st.write(f"**Letters:** {', '.join([c.upper() for c in class_names])}")
+            
+            # Settings
+            st.subheader("⚙️ Detection Settings")
+            confidence_threshold = st.slider("Confidence Threshold", 0.5, 0.95, 0.7)
+            show_landmarks = st.checkbox("Show Hand Landmarks", True)
+            
+            # Control Buttons
+            start_button = st.button("🚀 Start Webcam", type="primary")
+            stop_button = st.button("⏹️ Stop Webcam")
+            
+            if start_button:
+                st.session_state.webcam_running = True
+                st.session_state.user_progress['practice_sessions'] += 1
+                
+            if stop_button:
                 st.session_state.webcam_running = False
-            else:
-                status_placeholder.success("🎥 Webcam active - Show your hand signs!")
-                
-                # Main webcam loop
-                frame_count = 0
-                while st.session_state.webcam_running:
-                    ret, frame = cap.read()
-                    if not ret:
-                        st.error("❌ Failed to read from webcam")
-                        break
-                    
-                    # Flip frame horizontally for mirror effect
-                    frame = cv2.flip(frame, 1)
-                    h, w, _ = frame.shape
-                    
-                    # Convert BGR to RGB for MediaPipe
-                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    results = hands.process(rgb_frame)
-                    
-                    # Process hand landmarks
-                    if results.multi_hand_landmarks:
-                        for hand_landmarks in results.multi_hand_landmarks:
-                            # Extract hand region coordinates
-                            x_coords = [lm.x for lm in hand_landmarks.landmark]
-                            y_coords = [lm.y for lm in hand_landmarks.landmark]
-                            
-                            x_min, x_max = int(min(x_coords) * w), int(max(x_coords) * w)
-                            y_min, y_max = int(min(y_coords) * h), int(max(y_coords) * h)
-                            
-                            # Add padding
-                            x1 = max(x_min - 20, 0)
-                            y1 = max(y_min - 20, 0)
-                            x2 = min(x_max + 20, w)
-                            y2 = min(y_max + 20, h)
-                            
-                            # Extract hand region
-                            hand_img = frame[y1:y2, x1:x2]
-                            
-                            if hand_img.size != 0:
-                                # Prepare image for model
-                                img_rgb = cv2.cvtColor(hand_img, cv2.COLOR_BGR2RGB)
-                                pil_img = Image.fromarray(img_rgb)
-                                input_tensor = transform(pil_img).unsqueeze(0).to(device)
-                                
-                                # Make prediction
-                                with torch.no_grad():
-                                    output = model(input_tensor)
-                                    probabilities = torch.nn.functional.softmax(output, dim=1)
-                                    confidence, pred_idx = torch.max(probabilities, 1)
-                                    
-                                    confidence_score = confidence.item()
-                                    predicted_letter = class_names[pred_idx.item()]
-                                    
-                                    # Update session state
-                                    if confidence_score > confidence_threshold:
-                                        st.session_state.current_prediction = predicted_letter
-                                        st.session_state.current_confidence = confidence_score
-                                        
-                                        # Add to learned letters
-                                        st.session_state.user_progress['learned_letters'].add(predicted_letter)
-                                        
-                                        # Draw prediction on frame
-                                        cv2.putText(frame, f"{predicted_letter.upper()} ({confidence_score:.2f})", 
-                                                  (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 
-                                                  1, (0, 255, 0), 2)
-                                        
-                                        # Show reference image
-                                        if predicted_letter in REFERENCE_IMAGES:
-                                            try:
-                                                ref_placeholder.image(
-                                                    REFERENCE_IMAGES[predicted_letter], 
-                                                    caption=f"Reference: {predicted_letter.upper()}",
-                                                    width=200
-                                                )
-                                            except:
-                                                ref_placeholder.info(f"Reference image for '{predicted_letter.upper()}' not found")
-                                    
-                                    # Draw bounding box
-                                    cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-                            
-                            # Draw hand landmarks
-                            if show_landmarks:
-                                mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-                    
-                    # Display frame
-                    stframe.image(frame, channels="BGR", use_container_width=True)
-                    
-                    # Control frame rate
-                    frame_count += 1
-                    if frame_count % 30 == 0:  # Update every 30 frames
-                        time.sleep(0.1)
-                    
-                    # Check if stop button was pressed
-                    if not st.session_state.webcam_running:
-                        break
-                
-                cap.release()
-                status_placeholder.info("📷 Webcam stopped")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Current Prediction Display
+            if st.session_state.current_prediction:
+                st.markdown(f"""
+                <div class="prediction-box">
+                    🎯 Detected: {st.session_state.current_prediction.upper()}<br>
+                    Confidence: {st.session_state.current_confidence:.1%}
+                </div>
+                """, unsafe_allow_html=True)
         
-        except Exception as e:
-            st.error(f"❌ Webcam error: {str(e)}")
-            st.session_state.webcam_running = False
-    
-    else:
-        stframe.info("👆 Click 'Start Webcam' to begin sign recognition")
+        with col2:
+            # st.markdown('<div class="webcam-container">', unsafe_allow_html=True)
+            
+            # Webcam display
+            stframe = st.empty()
+            
+            # Reference image display
+            ref_placeholder = st.empty()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Status display
+            status_placeholder = st.empty()
+        
+        # WORKING WEBCAM LOGIC
+        if st.session_state.webcam_running:
+            mp_hands, hands, mp_draw = init_mediapipe()
+            
+            # Try to open webcam
+            try:
+                cap = cv2.VideoCapture(0)
+                
+                if not cap.isOpened():
+                    st.error("❌ Cannot access webcam. Please check your camera permissions.")
+                    st.session_state.webcam_running = False
+                else:
+                    status_placeholder.success("🎥 Webcam active - Show your hand signs!")
+                    
+                    # Main webcam loop
+                    frame_count = 0
+                    while st.session_state.webcam_running:
+                        ret, frame = cap.read()
+                        if not ret:
+                            st.error("❌ Failed to read from webcam")
+                            break
+                        
+                        # Flip frame horizontally for mirror effect
+                        frame = cv2.flip(frame, 1)
+                        h, w, _ = frame.shape
+                        
+                        # Convert BGR to RGB for MediaPipe
+                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        results = hands.process(rgb_frame)
+                        
+                        # Process hand landmarks
+                        if results.multi_hand_landmarks:
+                            for hand_landmarks in results.multi_hand_landmarks:
+                                # Extract hand region coordinates
+                                x_coords = [lm.x for lm in hand_landmarks.landmark]
+                                y_coords = [lm.y for lm in hand_landmarks.landmark]
+                                
+                                x_min, x_max = int(min(x_coords) * w), int(max(x_coords) * w)
+                                y_min, y_max = int(min(y_coords) * h), int(max(y_coords) * h)
+                                
+                                # Add padding
+                                x1 = max(x_min - 20, 0)
+                                y1 = max(y_min - 20, 0)
+                                x2 = min(x_max + 20, w)
+                                y2 = min(y_max + 20, h)
+                                
+                                # Extract hand region
+                                hand_img = frame[y1:y2, x1:x2]
+                                
+                                if hand_img.size != 0:
+                                    # Prepare image for model
+                                    img_rgb = cv2.cvtColor(hand_img, cv2.COLOR_BGR2RGB)
+                                    pil_img = Image.fromarray(img_rgb)
+                                    input_tensor = transform(pil_img).unsqueeze(0).to(device)
+                                    
+                                    # Make prediction
+                                    with torch.no_grad():
+                                        output = model(input_tensor)
+                                        probabilities = torch.nn.functional.softmax(output, dim=1)
+                                        confidence, pred_idx = torch.max(probabilities, 1)
+                                        
+                                        confidence_score = confidence.item()
+                                        predicted_letter = class_names[pred_idx.item()]
+                                        
+                                        # Update session state
+                                        if confidence_score > confidence_threshold:
+                                            st.session_state.current_prediction = predicted_letter
+                                            st.session_state.current_confidence = confidence_score
+                                            
+                                            # Add to learned letters
+                                            st.session_state.user_progress['learned_letters'].add(predicted_letter)
+                                            
+                                            # Draw prediction on frame
+                                            cv2.putText(frame, f"{predicted_letter.upper()} ({confidence_score:.2f})", 
+                                                    (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 
+                                                    1, (0, 255, 0), 2)
+                                            
+                                            # Show reference image
+                                            if predicted_letter in REFERENCE_IMAGES:
+                                                try:
+                                                    ref_placeholder.image(
+                                                        REFERENCE_IMAGES[predicted_letter], 
+                                                        caption=f"Reference: {predicted_letter.upper()}",
+                                                        width=200
+                                                    )
+                                                except:
+                                                    ref_placeholder.info(f"Reference image for '{predicted_letter.upper()}' not found")
+                                        
+                                        # Draw bounding box
+                                        cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                                
+                                # Draw hand landmarks
+                                if show_landmarks:
+                                    mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+                        
+                        # Display frame
+                        stframe.image(frame, channels="BGR", use_container_width=True)
+                        
+                        # Control frame rate
+                        frame_count += 1
+                        if frame_count % 30 == 0:  # Update every 30 frames
+                            time.sleep(0.1)
+                        
+                        # Check if stop button was pressed
+                        if not st.session_state.webcam_running:
+                            break
+                    
+                    cap.release()
+                    status_placeholder.info("📷 Webcam stopped")
+            
+            except Exception as e:
+                st.error(f"❌ Webcam error: {str(e)}")
+                st.session_state.webcam_running = False
+        
+        else:
+            stframe.info("👆 Click 'Start Webcam' to begin sign recognition")
+
+    with sub_tabs[1]:  # Basic Words tab
+       st.header("🗣️ AI-Powered Sign Recognition - Basic Words")
+       
+       col1, col2 = st.columns([1, 2], gap="large")
+
+       with col1:
+           st.subheader("📖 Recognition Settings")
+
+           # Load traditional ML model (make sure pickle is imported)
+           with open('new.p', 'rb') as f:
+               word_model = pickle.load(f)['model']
+
+           word_labels = {
+               0: 'hi', 1: 'thank you', 2: 'peace', 3: 'ok', 4: 'house',
+               5: 'Indian', 6: 'i', 7: 'you', 8: 'man', 9: 'woman'
+           }
+
+           st.info("Model: `new.p` - Traditional ML (DecisionTree or similar)")
+           st.write("**Words:**", ", ".join(word_labels.values()))
+
+           st.subheader("⚙️ Detection Settings")
+           word_conf_thresh = st.slider("Confidence Threshold", 0.5, 1.0, 0.75)
+           show_landmarks_word = st.checkbox("Show Hand Landmarks", value=True, key="basic_words_landmarks")
+
+
+           # Start/Stop buttons
+           
+           word_start = st.button("🚀 Start Webcam (Words)", type="primary", key="start_webcam_words")
+           word_stop = st.button("⏹️ Stop Webcam", key="stop_webcam_words")
+
+
+           if 'word_webcam_running' not in st.session_state:
+               st.session_state.word_webcam_running = False
+
+           if word_start:
+               st.session_state.word_webcam_running = True
+           if word_stop:
+               st.session_state.word_webcam_running = False
+
+           # Predicted label display
+           if st.session_state.get("word_prediction"):
+               st.markdown(f"""
+               <div class="prediction-box">
+                   🗣️ Detected Word: {st.session_state.word_prediction.upper()}<br>
+                   Confidence: {st.session_state.word_confidence:.1%}
+               </div>
+               """, unsafe_allow_html=True)
+
+       with col2:
+           # Webcam display
+           word_frame = st.empty()
+           ref_placeholder = st.empty()
+           word_status = st.empty()
+
+           if st.session_state.word_webcam_running:
+               mp_hands = mp.solutions.hands
+               hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.3)
+               mp_draw = mp.solutions.drawing_utils
+               mp_styles = mp.solutions.drawing_styles
+
+               cap = cv2.VideoCapture(0)
+               if not cap.isOpened():
+                   word_status.error("❌ Cannot open webcam")
+                   st.session_state.word_webcam_running = False
+               else:
+                   word_status.success("🎥 Webcam active - Show your signs!")
+
+                   while st.session_state.word_webcam_running:
+                       ret, frame = cap.read()
+                       if not ret:
+                           word_status.warning("Can't read from webcam")
+                           break
+
+                       frame = cv2.flip(frame, 1)
+                       H, W, _ = frame.shape
+                       rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                       results = hands.process(rgb)
+
+                       if results.multi_hand_landmarks:
+                           for handLms in results.multi_hand_landmarks:
+                               if show_landmarks_word:
+                                   mp_draw.draw_landmarks(
+                                       frame, handLms,
+                                       mp_hands.HAND_CONNECTIONS,
+                                       mp_styles.get_default_hand_landmarks_style(),
+                                       mp_styles.get_default_hand_connections_style()
+                                   )
+
+                               x_list = [lm.x for lm in handLms.landmark]
+                               y_list = [lm.y for lm in handLms.landmark]
+
+                               xmin, ymin = min(x_list), min(y_list)
+                               xmax, ymax = max(x_list), max(y_list)
+
+                               features = []
+                               for lm in handLms.landmark:
+                                   features.append(lm.x - xmin)
+                                   features.append(lm.y - ymin)
+
+                               x1 = int(xmin * W) - 15
+                               y1 = int(ymin * H) - 15
+                               x2 = int(xmax * W) + 15
+                               y2 = int(ymax * H) + 15
+
+                               pred = word_model.predict([np.asarray(features)])
+                               label = word_labels[int(pred[0])]
+
+                               st.session_state.word_prediction = label
+                               st.session_state.word_confidence = 1.0  # Classic ML model has no probability output
+
+                               overlay = frame.copy()
+                               alpha = 0.6
+                               box_width = 180
+                               box_height = 40
+                               cv2.rectangle(overlay, (x1, y1 - box_height), (x1 + box_width, y1), (30, 30, 30), -1)
+                               frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+
+                               # Rounded prediction box
+                               cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 150), 2)
+                               cv2.putText(frame, label, (x1 + 10, y1 - 10),
+                                           cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+                       word_frame.image(frame, channels="BGR", use_container_width=True)
+
+                   cap.release()
+                   word_status.info("📷 Webcam stopped")
+
+           else:
+               word_frame.info("👆 Click 'Start Webcam (Words)' to begin sign recognition")
 
 # Tab 2: Alphabet Reference
 
@@ -770,9 +895,9 @@ hands = mp_hands.Hands(
     min_tracking_confidence=0.5
 )
 
-
 with tabs[3]:
-    allowed_letters = ['a', 'c', 'e', 'f', 'g', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 's', 't', 'u']
+    st.header("🎮 Interactive Learning Games")
+    allowed_letters = ['a', 'c', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 's', 't', 'u']
     for key, default in {
         "challenge_active": False,
         "game_score": 0,
@@ -787,160 +912,139 @@ with tabs[3]:
         st.session_state.game_letter = random.choice(allowed_letters)
         st.session_state.matched_this_round = False
         st.session_state.last_detection_time = 0
-    
-    st.header("🎮 Interactive Learning Games")
+            
+    if "game_letter" not in st.session_state or not st.session_state.get("challenge_active"):
+        st.session_state.game_letter = random.choice(allowed_letters)
 
-    if not st.session_state.challenge_active:
-        if st.button("🚀 Start Sign Challenge", type="primary", use_container_width=True):
-            st.session_state.challenge_active = True
+
+    game_col1, game_col2 = st.columns(2)
+
+    with game_col1:
+        st.markdown("""
+        <div class="feature-card">
+            <h3>🎯 Sign Challenge</h3>
+            <p>Random letters appear - show the correct sign!</p>
+            <ul>
+                <li>⏱️ Time-based challenges</li>
+                <li>🏆 Score tracking</li>
+                <li>📈 Difficulty progression</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div style="
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            color: white;
+            margin: 20px 0;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        ">
+            <h2 style="margin: 0; font-size: 2em;">🏆</h2>
+            <h3 style="margin: 5px 0;">Current Score</h3>
+            <h1 style="margin: 0; font-size: 3em; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">{st.session_state.game_score}</h1>
+        </div>
+        """, unsafe_allow_html=True)
+        
+
+        if st.button("Start Sign Challenge", key="sign_challenge"):
+            st.session_state.game_mode = "challenge"
             st.session_state.game_score = 0
-            start_new_round()
+            st.session_state.game_letter = random.choice(allowed_letters)
+            st.session_state.challenge_active = True
             st.rerun()
-    else:
-        col1, col2 = st.columns([1, 1])
 
-        with col1:
-            st.markdown("### 📹 Camera Feed")
+    with game_col2:
+        if st.session_state.get("challenge_active"):
+            chosen_letter = random.choice(allowed_letters)
+            ref_img_path = REFERENCE_IMAGES[chosen_letter]
+            
+            st.subheader(f"👋 Make the sign for: **{chosen_letter.upper()}**")
+            st.session_state.game_letter = chosen_letter
 
-            camera_key = f"camera_{st.session_state.game_letter}_{st.session_state.game_score}"
-            uploaded_file = st.camera_input("📷 Show your sign", key=camera_key)
+            mp_hands, hands, mp_draw = init_mediapipe()
 
-            if uploaded_file is not None and not st.session_state.matched_this_round:
-                # Read and process image
-                file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-                frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-                frame = cv2.flip(frame, 1)  # mirror
+            ref_img_bgr = cv2.imread(ref_img_path)
+            ref_img_rgb = cv2.cvtColor(ref_img_bgr, cv2.COLOR_BGR2RGB)
+            ref_results = hands.process(ref_img_rgb)
 
-                try:
-                    mp_hands, hands, mp_draw = init_mediapipe()
-                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    results = hands.process(rgb_frame)
+            ref_hand_img = None
+            if ref_results.multi_hand_landmarks:
+                for handLms in ref_results.multi_hand_landmarks:
+                    x_list = [lm.x for lm in handLms.landmark]
+                    y_list = [lm.y for lm in handLms.landmark]
+                    xmin, xmax = int(min(x_list) * ref_img_rgb.shape[1]), int(max(x_list) * ref_img_rgb.shape[1])
+                    ymin, ymax = int(min(y_list) * ref_img_rgb.shape[0]), int(max(y_list) * ref_img_rgb.shape[0])
+                    x1, y1 = max(xmin - 20, 0), max(ymin - 20, 0)
+                    x2, y2 = min(xmax + 20, ref_img_rgb.shape[1]), min(ymax + 20, ref_img_rgb.shape[0])
+                    ref_hand_img = ref_img_rgb[y1:y2, x1:x2]
 
-                    if results.multi_hand_landmarks:
-                        for handLms in results.multi_hand_landmarks:
-                            h, w, _ = frame.shape
-                            x_list = [lm.x for lm in handLms.landmark]
-                            y_list = [lm.y for lm in handLms.landmark]
-                            xmin, xmax = int(min(x_list) * w), int(max(x_list) * w)
-                            ymin, ymax = int(min(y_list) * h), int(max(y_list) * h)
+            stframe = st.empty()
+            cap = cv2.VideoCapture(0)
 
-                            x1, y1 = max(xmin - 20, 0), max(ymin - 20, 0)
-                            x2, y2 = min(xmax + 20, w), min(ymax + 20, h)
+            success = False
+            timeout = time.time() + 10
 
-                            hand_img = frame[y1:y2, x1:x2]
+            while time.time() < timeout:
+                ret, frame = cap.read()
+                if not ret:
+                    continue
 
-                            ref_img_path = REFERENCE_IMAGES.get(st.session_state.game_letter)
-                            ref_img_bgr = cv2.imread(ref_img_path)
-                            ref_img_rgb = cv2.cvtColor(ref_img_bgr, cv2.COLOR_BGR2RGB)
-                            ref_results = hands.process(ref_img_rgb)
+                frame = cv2.flip(frame, 1)
+                h, w, _ = frame.shape
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = hands.process(rgb)
 
-                            ref_hand_img = None
-                            if ref_results.multi_hand_landmarks:
-                                for refHandLms in ref_results.multi_hand_landmarks:
-                                    rx = [lm.x for lm in refHandLms.landmark]
-                                    ry = [lm.y for lm in refHandLms.landmark]
-                                    rh, rw, _ = ref_img_rgb.shape
-                                    rx1, rx2 = int(min(rx) * rw) - 20, int(max(rx) * rw) + 20
-                                    ry1, ry2 = int(min(ry) * rh) - 20, int(max(ry) * rh) + 20
-                                    ref_hand_img = ref_img_rgb[max(ry1, 0):min(ry2, rh), max(rx1, 0):min(rx2, rw)]
+                if results.multi_hand_landmarks:
+                    for handLms in results.multi_hand_landmarks:
+                        x_list = [lm.x for lm in handLms.landmark]
+                        y_list = [lm.y for lm in handLms.landmark]
+                        xmin, xmax = int(min(x_list) * w), int(max(x_list) * w)
+                        ymin, ymax = int(min(y_list) * h), int(max(y_list) * h)
+                        x1, y1 = max(xmin - 20, 0), max(ymin - 20, 0)
+                        x2, y2 = min(xmax + 20, w), min(ymax + 20, h)
 
-                            if hand_img.size != 0 and ref_hand_img is not None:
+                        hand_img = frame[y1:y2, x1:x2]
+                        if hand_img.size != 0 and ref_hand_img is not None:
+                            try:
                                 hand_gray = cv2.cvtColor(hand_img, cv2.COLOR_BGR2GRAY)
                                 ref_gray = cv2.cvtColor(ref_hand_img, cv2.COLOR_BGR2GRAY)
+
                                 hand_resized = cv2.resize(hand_gray, (200, 200))
                                 ref_resized = cv2.resize(ref_gray, (200, 200))
 
                                 similarity_score, _ = ssim(hand_resized, ref_resized, full=True)
 
-                                st.image(frame, caption=f"Your Sign (Similarity: {similarity_score:.2f})", width=400)
+                                if similarity_score > 0.4:
+                                    st.success(f"✅ Sign Matched!")
+                                    st.balloons()
+                                    st.session_state.game_score += 1
+                                    success = True
+                                    break
+                                
+                            except Exception as e:
+                                st.error(f"Error comparing images: {e}")
 
-                                if similarity_score >= 0.2:
-                                    current_time = time.time()
-                                    if current_time - st.session_state.last_detection_time > 1.0:
-                                        st.success("✅ Sign Matched!")
-                                        st.session_state.game_score += 1
-                                        st.session_state.matched_this_round = True
-                                        st.session_state.last_detection_time = current_time
-                                        st.balloons()
-                                        time.sleep(1)
-                                        start_new_round()
-                                        st.rerun()
-                                else:
-                                    st.warning("⚠️ Try to match the reference sign better.")
-                            else:
-                                st.image(frame, caption="Show your hand clearly", width=400)
-                    else:
-                        st.image(frame, caption="No hand detected", width=400)
-                        st.warning("❌ No hand detected. Please show your hand clearly.")
+                        if 'show_landmarks' in locals() and show_landmarks:
+                            mp_draw.draw_landmarks(frame, handLms, mp_hands.HAND_CONNECTIONS)
 
-                except Exception as e:
-                    st.error(f"Processing error: {e}")
-                    st.image(frame, caption="Error processing frame", width=400)
+                stframe.image(frame, channels="BGR")
+                if success:
+                    break
 
-            elif st.session_state.matched_this_round:
-                st.success("✅ Round completed! Preparing next sign...")
-                time.sleep(1)
-                start_new_round()
+            cap.release()
+            st.markdown(f"### 🎉 Your Score: **{st.session_state.game_score}**")
+
+            if st.button("Next Challenge"):
+                st.session_state.game_letter = random.choice(allowed_letters)
                 st.rerun()
 
-        with col2:
-            st.markdown("### 🎮 Game Controls")
-            if st.button("⏹️ End Game", use_container_width=True):
+            if st.button("End Game"):
                 st.session_state.challenge_active = False
-                st.session_state.game_letter = None
-                st.session_state.matched_this_round = False
-                st.rerun()
-
-            if st.button("⏭️ Next Sign", use_container_width=True):
-                start_new_round()
-                st.rerun()
-
-            st.markdown(f"""
-            <div style="
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                padding: 20px;
-                border-radius: 10px;
-                text-align: center;
-                color: white;
-                margin: 20px 0;
-                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            ">
-                <h2 style="margin: 0; font-size: 2em;">🏆</h2>
-                <h3 style="margin: 5px 0;">Current Score</h3>
-                <h1 style="margin: 0; font-size: 3em; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">{st.session_state.game_score}</h1>
-            </div>
-            """ , unsafe_allow_html=True)
-
-            st.markdown("### 📚 Reference Sign")
-            ref_img_path = REFERENCE_IMAGES.get(st.session_state.game_letter)
-            if ref_img_path:
-                ref_img = cv2.imread(ref_img_path)
-                if ref_img is not None:
-                    ref_img = cv2.cvtColor(ref_img, cv2.COLOR_BGR2RGB)
-                    st.image(ref_img, caption=f"Sign for '{st.session_state.game_letter.upper()}'", width=300)
-                else:
-                    st.warning("Reference image not found.")
-            else:
-                st.info("No reference image for this letter.")
-
-            st.markdown("""
-            <div style="
-                background: #e3f2fd;
-                padding: 15px;
-                border-radius: 8px;
-                border-left: 4px solid #2196f3;
-                margin: 20px 0;
-            ">
-                <h4 style="color: #1976d2; margin-top: 0;">🎯 How to Play</h4>
-                <ul style="margin-bottom: 0;">
-                    <li>📸 Show your hand clearly in the camera</li>
-                    <li>👋 Make the sign for the given letter</li>
-                    <li>⏱️ Hold steady for 1 second to score</li>
-                    <li>🎉 Game auto-progresses to next round</li>
-                    <li>👀 Green landmarks show hand detection</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
+                st.session_state.game_mode = None
+          
 
                    
 with tabs[4]:  # or wherever your analytics tab is
@@ -1081,8 +1185,8 @@ with tabs[5]:
         - 📷 Working webcam
         - 💡 Good lighting
         - 🖥️ Stable internet connection
-        - 📁 Model files in `/models/` directory
-        - 🖼️ Reference images in `/ref_imgs/` directory
+        - 📁 Model files in `/models/`
+        - 🖼️ Reference images in `/ref_imgs/`
         </div>
         
         ### 📁 Required Files
@@ -1100,7 +1204,7 @@ with tabs[5]:
         <div class="feature-card">
             <p>Need help? Contact us:</p>
             <ul>
-                <li>📧 islleanringhub@gmail.com</li>
+                <li>📧 support@isllearninghub.com</li>
                 <li>📱 WhatsApp: +91-7783009847</li>
             </ul>
         </div>
